@@ -291,8 +291,7 @@ Button(aimbot,164,"Team Check: ON",function(b) Settings.TeamCheck = not Settings
 local note = Instance.new("TextLabel", aimbot)
 note.Size = UDim2.fromOffset(300,28)
 note.Position = UDim2.fromOffset(10,200)
-note.Text = "⚠️ Try disabling TeamCheck if aim isn't 
-working / tắt teamcheck nếu aim bị lỗi"
+note.Text = "⚠️ Try disabling TeamCheck if aim isn't working"
 note.Font = FONT
 note.TextSize = 11
 note.TextColor3 = Color3.fromRGB(255,200,0)
