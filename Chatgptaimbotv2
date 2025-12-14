@@ -1,0 +1,399 @@
+--// SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local Camera = workspace.CurrentCamera
+local LP = Players.LocalPlayer
+
+--// FILE CONFIG
+local CONFIG_FOLDER = "AimbotConfigs"
+if writefile and not isfolder(CONFIG_FOLDER) then
+	makefolder(CONFIG_FOLDER)
+end
+
+--// SETTINGS
+local Settings = {
+	Aim = false,
+	Smooth = 6,
+	Speed = 1,
+	FOV = 120,
+	ShowFOV = true,
+	WallCheck = true,
+	TeamCheck = true,
+	Ignore = {},
+	ShowTargetESP = true,
+	ExtraEnabled = false,
+	PlayerSpeed = 16,
+	PlayerJump = 50
+}
+
+local FONT = Enum.Font.Arcade
+
+--// ===== FOV =====
+local FOV = Drawing.new("Circle")
+FOV.Filled = false
+FOV.Thickness = 2
+FOV.Transparency = 0.6
+FOV.Color = Color3.fromRGB(0,200,255)
+
+--// ===== UTILS =====
+local function IsIgnored(plr)
+	return Settings.Ignore[plr.Name]
+end
+
+local function IsTeam(plr)
+	if not LP.Team or not plr.Team then return false end
+	return LP.Team == plr.Team
+end
+
+local function Visible(part)
+	if not Settings.WallCheck then return true end
+	local o = Camera.CFrame.Position
+	local d = part.Position - o
+	local p = RaycastParams.new()
+	p.FilterDescendantsInstances = {LP.Character}
+	p.FilterType = Enum.RaycastFilterType.Blacklist
+	local r = workspace:Raycast(o,d,p)
+	return r and r.Instance:IsDescendantOf(part.Parent)
+end
+
+--// ===== TARGET =====
+local function GetTarget()
+	local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+	local closest, dist = nil, Settings.FOV
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= LP and plr.Character and plr.Character:FindFirstChild("Head") and not IsIgnored(plr) then
+			if Settings.TeamCheck and IsTeam(plr) then continue end
+			local h = plr.Character.Head
+			local pos,on = Camera:WorldToViewportPoint(h.Position)
+			if on then
+				local mag = (Vector2.new(pos.X,pos.Y)-center).Magnitude
+				if mag < dist and Visible(h) then
+					dist = mag
+					closest = h
+				end
+			end
+		end
+	end
+	return closest
+end
+
+--// ===== ESP MÁU =====
+local currentESP, currentName
+local function ClearESP()
+	if currentESP then currentESP:Destroy() currentESP=nil end
+	if currentName then currentName:Destroy() currentName=nil end
+end
+
+local function CreateESP(character, player)
+	ClearESP()
+	local hl = Instance.new("Highlight")
+	hl.Adornee = character
+	hl.FillTransparency = 1
+	hl.OutlineColor = Color3.fromRGB(0,200,255)
+	hl.OutlineTransparency = 0
+	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	hl.Parent = game.CoreGui
+	currentESP = hl
+
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromOffset(200,50)
+	bb.StudsOffset = Vector3.new(0,3,0)
+	bb.AlwaysOnTop = true
+	bb.Parent = character:FindFirstChild("Head")
+
+	local txt = Instance.new("TextLabel", bb)
+	txt.Size = UDim2.fromScale(1,1)
+	txt.BackgroundTransparency = 1
+	txt.Text = player.Name.." | HP: "..(character:FindFirstChild("Humanoid") and math.floor(character.Humanoid.Health) or 0)
+	txt.Font = FONT
+	txt.TextSize = 14
+	txt.TextColor3 = Color3.fromRGB(0,200,255)
+	txt.TextStrokeTransparency = 0.3
+	currentName = bb
+end
+
+--// ===== AIM & EXTRA LOOP =====
+RunService.RenderStepped:Connect(function()
+	local center = Vector2.new(Camera.ViewportSize.X/2,Camera.ViewportSize.Y/2)
+	FOV.Position = center
+	FOV.Radius = Settings.FOV
+	FOV.Visible = Settings.ShowFOV
+
+	local target = GetTarget()
+	if Settings.Aim and target then
+		local cf = Camera.CFrame
+		Camera.CFrame = cf:Lerp(
+			CFrame.new(cf.Position,target.Position),
+			Settings.Speed/Settings.Smooth
+		)
+		if Settings.ShowTargetESP then
+			local char = target.Parent
+			local plr = Players:GetPlayerFromCharacter(char)
+			if plr and (not currentESP or currentESP.Adornee ~= char) then
+				CreateESP(char, plr)
+			end
+		end
+	else
+		ClearESP()
+	end
+
+	if Settings.ExtraEnabled and LP.Character and LP.Character:FindFirstChild("Humanoid") then
+		local h = LP.Character.Humanoid
+		h.WalkSpeed = Settings.PlayerSpeed
+		h.JumpPower = Settings.PlayerJump
+	end
+end)
+
+--// ===== GUI =====
+local gui = Instance.new("ScreenGui")
+gui.Name = "AimbotGUI"
+gui.ResetOnSpawn = false
+gui.Parent = game.CoreGui
+
+-- OPEN BUTTON
+local open = Instance.new("TextButton", gui)
+open.Size = UDim2.fromOffset(40,40)
+open.Position = UDim2.fromScale(0.93,0.5)
+open.Text = "≡"
+open.Font = FONT
+open.TextSize = 18
+open.BackgroundColor3 = Color3.fromRGB(20,20,20)
+open.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", open).CornerRadius = UDim.new(1,0)
+open.ZIndex = 10
+
+-- MAIN FRAME
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.fromOffset(480,480)
+main.Position = UDim2.fromScale(0.5,0.5)
+main.AnchorPoint = Vector2.new(0.5,0.5)
+main.Visible = false
+main.BackgroundColor3 = Color3.fromRGB(16,16,16)
+Instance.new("UICorner", main).CornerRadius = UDim.new(0,20)
+open.Activated:Connect(function() main.Visible = not main.Visible end)
+
+-- TITLE + DRAG
+local title = Instance.new("TextLabel", main)
+title.Size = UDim2.new(1,0,0,32)
+title.Text = "== AIMBOT MENU =="
+title.Font = FONT
+title.TextSize = 14
+title.TextColor3 = Color3.new(1,1,1)
+title.BackgroundTransparency = 1
+local dragging, ds, sp
+title.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		ds = i.Position
+		sp = main.Position
+	end
+end)
+UIS.InputChanged:Connect(function(i)
+	if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+		local d = i.Position - ds
+		main.Position = sp + UDim2.fromOffset(d.X,d.Y)
+	end
+end)
+UIS.InputEnded:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+end)
+
+-- LEFT TABS + CONTENT
+local tabs = Instance.new("Frame", main)
+tabs.Position = UDim2.fromOffset(10,42)
+tabs.Size = UDim2.fromOffset(140,428)
+tabs.BackgroundTransparency = 1
+local content = Instance.new("Frame", main)
+content.Position = UDim2.fromOffset(160,42)
+content.Size = UDim2.fromOffset(320,428)
+content.BackgroundTransparency = 1
+
+local pages = {}
+local function NewPage(name)
+	local f = Instance.new("Frame", content)
+	f.Size = UDim2.fromScale(1,1)
+	f.Visible = false
+	f.BackgroundTransparency = 1
+	pages[name] = f
+	return f
+end
+local function Tab(text,y,page)
+	local b = Instance.new("TextButton", tabs)
+	b.Size = UDim2.fromOffset(140,44)
+	b.Position = UDim2.fromOffset(0,y)
+	b.Text = text
+	b.Font = FONT
+	b.TextSize = 13
+	b.TextColor3 = Color3.new(1,1,1)
+	b.BackgroundColor3 = Color3.fromRGB(30,30,30)
+	Instance.new("UICorner",b).CornerRadius = UDim.new(0,14)
+	b.Activated:Connect(function()
+		for _,p in pairs(pages) do p.Visible=false end
+		page.Visible = true
+	end)
+end
+local function Button(parent,y,text,cb)
+	local b = Instance.new("TextButton", parent)
+	b.Size = UDim2.fromOffset(300,34)
+	b.Position = UDim2.fromOffset(10,y)
+	b.Text = text
+	b.Font = FONT
+	b.TextSize = 12
+	b.TextColor3 = Color3.new(1,1,1)
+	b.BackgroundColor3 = Color3.fromRGB(35,35,35)
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0,14)
+	b.Activated:Connect(function() cb(b) end)
+	return b
+end
+local function Box(parent,y,placeholder,min,max,cb)
+	local t = Instance.new("TextBox", parent)
+	t.Size = UDim2.fromOffset(300,32)
+	t.Position = UDim2.fromOffset(10,y)
+	t.PlaceholderText = placeholder.." ("..min.."-"..max..")"
+	t.Text=""
+	t.ClearTextOnFocus=false
+	t.Font = FONT
+	t.TextSize=12
+	t.TextColor3 = Color3.new(1,1,1)
+	t.BackgroundColor3 = Color3.fromRGB(28,28,28)
+	Instance.new("UICorner", t).CornerRadius = UDim.new(0,14)
+	t.FocusLost:Connect(function()
+		local n = tonumber(t.Text)
+		if n then cb(math.clamp(n,min,max)) end
+	end)
+	return t
+end
+
+-- CREATE PAGES
+local aimbot = NewPage("Aimbot")
+local visuals = NewPage("Visuals")
+local extra = NewPage("Extra")
+local config = NewPage("Config")
+local playersPage = NewPage("Players")
+Tab("Aimbot",0,aimbot)
+Tab("Visuals",52,visuals)
+Tab("Extra",104,extra)
+Tab("Config",156,config)
+Tab("Players",208,playersPage)
+aimbot.Visible = true
+
+-- === AIMBOT PAGE ===
+local aimBtn = Button(aimbot,0,"Aim: OFF",function(b) Settings.Aim = not Settings.Aim b.Text = Settings.Aim and "Aim: ON" or "Aim: OFF" end)
+Box(aimbot,44,"Aim Strength",1,20,function(v) Settings.Smooth=v end)
+Box(aimbot,84,"Aim Speed",0.1,5,function(v) Settings.Speed=v end)
+Button(aimbot,124,"Wall Check: ON",function(b) Settings.WallCheck = not Settings.WallCheck b.Text = Settings.WallCheck and "Wall Check: ON" or "Wall Check: OFF" end)
+Button(aimbot,164,"Team Check: ON",function(b) Settings.TeamCheck = not Settings.TeamCheck b.Text = Settings.TeamCheck and "Team Check: ON" or "Team Check: OFF" end)
+-- Lưu ý nhỏ
+local note = Instance.new("TextLabel", aimbot)
+note.Size = UDim2.fromOffset(300,28)
+note.Position = UDim2.fromOffset(10,200)
+note.Text = "⚠️ Try disabling TeamCheck if aim isn't working / tắt teamcheck nếu aim bị lỗi"
+note.Font = FONT
+note.TextSize = 11
+note.TextColor3 = Color3.fromRGB(255,200,0)
+note.BackgroundTransparency = 1
+
+-- === VISUALS PAGE ===
+Button(visuals,0,"FOV: ON",function(b) Settings.ShowFOV = not Settings.ShowFOV b.Text = Settings.ShowFOV and "FOV: ON" or "FOV: OFF" end)
+Box(visuals,44,"FOV Size",50,400,function(v) Settings.FOV=v end)
+Button(visuals,84,"Target ESP: ON",function(b) Settings.ShowTargetESP = not Settings.ShowTargetESP b.Text = Settings.ShowTargetESP and "Target ESP: ON" or "Target ESP: OFF" if not Settings.ShowTargetESP then ClearESP() end end)
+
+-- === EXTRA PAGE ===
+Button(extra,0,"Extra: OFF",function(b) Settings.ExtraEnabled = not Settings.ExtraEnabled b.Text = Settings.ExtraEnabled and "Extra: ON" or "Extra: OFF" end)
+Box(extra,44,"WalkSpeed",1,1000,function(v) Settings.PlayerSpeed=v end)
+Box(extra,84,"JumpPower",1,1000,function(v) Settings.PlayerJump=v end)
+Button(extra,124,"Reset Speed / Jump",function() if LP.Character and LP.Character:FindFirstChild("Humanoid") then local h=LP.Character.Humanoid h.WalkSpeed=16 h.JumpPower=50 end end)
+
+-- === CONFIG PAGE ===
+local cfgNameBox = Box(config,0,"Config Name",1,999,function() end)
+local selectedConfig
+local listCfg = Instance.new("ScrollingFrame", config)
+listCfg.Size=UDim2.fromOffset(300,120)
+listCfg.Position=UDim2.fromOffset(10,44)
+listCfg.CanvasSize=UDim2.new(0,0,0,0)
+listCfg.ScrollBarImageTransparency=0.3
+listCfg.BackgroundTransparency=1
+local layoutCfg = Instance.new("UIListLayout",listCfg)
+layoutCfg.Padding=UDim.new(0,6)
+local function RefreshConfigs()
+	for _,c in pairs(listCfg:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+	if not listfiles then return end
+	for _,f in pairs(listfiles(CONFIG_FOLDER)) do
+		if f:sub(-5)==".json" then
+			local name = f:match(".+/([^/]+)%.json")
+			local b = Instance.new("TextButton", listCfg)
+			b.Size=UDim2.fromOffset(300,28)
+			b.Text=name
+			b.Font=FONT
+			b.TextSize=12
+			b.TextColor3=Color3.new(1,1,1)
+			b.BackgroundColor3=Color3.fromRGB(32,32,32)
+			Instance.new("UICorner",b).CornerRadius=UDim.new(0,10)
+			b.Activated:Connect(function() selectedConfig=name end)
+		end
+	end
+	task.wait()
+	listCfg.CanvasSize=UDim2.fromOffset(0,layoutCfg.AbsoluteContentSize.Y+6)
+end
+Button(config,44,"Save Config",function() if writefile and cfgNameBox.Text~="" then writefile(CONFIG_FOLDER.."/"..cfgNameBox.Text..".json",HttpService:JSONEncode(Settings)) RefreshConfigs() end end)
+Button(config,84,"Load Config",function() if selectedConfig then local data=HttpService:JSONDecode(readfile(CONFIG_FOLDER.."/"..selectedConfig..".json")) for k,v in pairs(data) do Settings[k]=v end end end)
+Button(config,124,"Delete Config",function() if selectedConfig then delfile(CONFIG_FOLDER.."/"..selectedConfig..".json") selectedConfig=nil RefreshConfigs() end end)
+RefreshConfigs()
+
+-- === PLAYERS PAGE ===
+local titlePL = Instance.new("TextLabel", playersPage)
+titlePL.Size = UDim2.new(1,0,0,28)
+titlePL.Position = UDim2.fromOffset(0,0)
+titlePL.Text = "Ignored Players"
+titlePL.Font = FONT
+titlePL.TextSize = 14
+titlePL.TextColor3 = Color3.new(1,1,1)
+titlePL.BackgroundTransparency = 1
+
+local listPL = Instance.new("ScrollingFrame", playersPage)
+listPL.Size = UDim2.fromOffset(300,340)
+listPL.Position = UDim2.fromOffset(0,32)
+listPL.CanvasSize = UDim2.new(0,0,0,0)
+listPL.ScrollBarImageTransparency = 0.3
+listPL.BackgroundTransparency = 1
+local layoutPL = Instance.new("UIListLayout", listPL)
+layoutPL.Padding = UDim.new(0,6)
+
+local refreshBtn = Button(playersPage,380,"Refresh List",function() RefreshPlayers() end)
+
+function RefreshPlayers()
+	for _,c in pairs(listPL:GetChildren()) do
+		if c:IsA("TextButton") then c:Destroy() end
+	end
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= LP then
+			local row = Instance.new("TextButton")
+			row.Size = UDim2.fromOffset(300,32)
+			row.Text = (IsIgnored(plr) and "❌ " or "")..plr.Name
+			row.Font = FONT
+			row.TextSize = 12
+			row.TextColor3 = Color3.new(1,1,1)
+			row.BackgroundColor3 = Color3.fromRGB(32,32,32)
+			Instance.new("UICorner", row).CornerRadius = UDim.new(0,12)
+			row.Parent = listPL
+			row.Activated:Connect(function()
+				if IsIgnored(plr) then
+					Settings.Ignore[plr.Name] = nil
+				else
+					Settings.Ignore[plr.Name] = true
+				end
+				RefreshPlayers()
+			end)
+		end
+	end
+	task.wait()
+	listPL.CanvasSize = UDim2.fromOffset(0, layoutPL.AbsoluteContentSize.Y + 10)
+end
+
+Players.PlayerAdded:Connect(RefreshPlayers)
+Players.PlayerRemoving:Connect(RefreshPlayers)
+RefreshPlayers()
